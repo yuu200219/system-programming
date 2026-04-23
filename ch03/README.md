@@ -1,4 +1,19 @@
-## malloc.c
+## need to know: linux OS memory management
+可以從四個機制來理解: virtual memory, paging, demand paging & page fault, swap, kernel & user space
+- virtual memory
+  - Linux 不會讓程式直接存取實體 RAM 的位址。相反地，每個行程都有自己的虛擬位址空間（Virtual Address Space）。
+  - Isolation：行程 A 無法讀取行程 B 的記憶體，這保證了系統的安全與穩定。
+  - 超額分配 (Overcommit)：虛擬記憶體可以比實體記憶體大。例如你的 RAM 只有 16GB，但你可以執行多個總需求超過 16GB 的程式。
+  透過幾個機制來達成：
+    - lazy allocation
+      - `malloc` 或是 `mmap` 配置 10 GB 記憶體的時候，不會真跟 RAM 要實體記憶體空間
+      - kernel 只會在 process 的 virtual memory 畫出一塊 10GB 的記憶體，並回傳給 process
+    - page fault
+      - 當 process 要寫入某段記憶體的時候，CPU CR3 暫存器惠存 page table 的實體位址，呼叫 MMU 去找 page table，MMU 會拿 VPN (virtual page number) 去查 page table (存在於實體 RAM 上面) 有沒有對應的 page table entry。如果沒有 MMU 就會觸發 Exception (trap)，CPU 會將當前的 PC, register 等 infromation 壓入到 kernel stack。CPU 會把引起故障的 virtual memory 存在特定的暫存器 (x86 中是 CR2 暫存器)。之後 CPU 根據接收到的 interrupt vector number 去查 interrupt vector table(VT) 或是 IDT (interrupt descriptor table, x86)。每個 entry 為 16 bytes 的結構 (offset + selector)。這邊不多說 IDT entry 的內容。他們會透過 offset (透過 kernel page table，CPU 有暫存器指向 TSS 位址，TSS 會提供 kernel stack rsp) 去定位程式。
+      - 補充： selector 會指向 GDT 提供 sementation descriptor (GDT 是 array，定義了三種段，code, data, system segment (TSS))。
+    - COW, copy on write
+
+## `malloc.c`
 實驗 `malloc` 會如何配置記憶體。
 以某次的輸出結果為例：
 ```
@@ -41,7 +56,7 @@ ffffffffff600000      4K --x--   [ anon ]
   - 這是因為 malloc 為了效率，會預先向系統要一大塊地（Arena），再慢慢分給你。
 - p2(256KB)
   - 這個位址非常接近 libc.so.6 等動態連結函式庫的區域。這是在 Memory Mapping Segment（記憶體映射區）。
-  - 當申請的記憶體超過一個門檻（通常是 128 KB）時，malloc 會改用 mmap() 系統呼叫，直接在堆疊與堆積之間的空地「開闢」一塊獨立區域。
+  - 當申請的記憶體超過一個門檻（通常是 128 KB，但也不一定）時，malloc 會改用 mmap() 系統呼叫，直接在堆疊與堆積之間的空地「開闢」一塊獨立區域。
 pmap 輸出解析
 - 前五行 malloc 執行檔: 這是 malloc 程式本身，分為唯讀(程式碼本體)跟可讀寫(global variable)
 - `[anon] 132K`: 這是 p1 所在的 heap，`anon` 代表 anonymous memory (匿名記憶體)，意思是他不對應硬碟上的任何檔案
@@ -54,17 +69,70 @@ pmap 輸出解析
 在 Heap 上：配置了一塊 64 bytes 的匿名空間。
 互動：p 裡面存的值，就是那塊 Heap 空間的「門牌號碼」（位址）。
 Stack 是從高位址往低位址生長，Heap 是從低位址往高位址生長。它們中間隔著一段很大的空地（也就是你之前看到的 `[anon]` 區域）。這樣設計是為了最大化利用空間——誰需要多一點，就往中間長一點。
-### 補充: linux OS memory management
-可以從四個機制來理解: virtual memory, paging, demand paging & page fault, swap, kernel & user space
-- virtual memory
-  - Linux 不會讓程式直接存取實體 RAM 的位址。相反地，每個行程都有自己的虛擬位址空間（Virtual Address Space）。
-  - Isolation：行程 A 無法讀取行程 B 的記憶體，這保證了系統的安全與穩定。
-  - 超額分配 (Overcommit)：虛擬記憶體可以比實體記憶體大。例如你的 RAM 只有 16GB，但你可以執行多個總需求超過 16GB 的程式。
-  透過幾個機制來達成：
-    - lazy allocation
-      - `malloc` 或是 `mmap` 配置 10 GB 記憶體的時候，不會真跟 RAM 要實體記憶體空間
-      - kernel 只會在 process 的 virtual memory 畫出一塊 10GB 的記憶體，並回傳給 process
-    - page fault
-      - 當 process 要寫入某段記憶體的時候，CPU CR3 暫存器惠存 page table 的實體位址，呼叫 MMU 去找 page table，MMU 會拿 VPN (virtual page number) 去查 page table (存在於實體 RAM 上面) 有沒有對應的 page table entry。如果沒有 MMU 就會觸發 Exception (trap)，CPU 會將當前的 PC, register 等 infromation 壓入到 kernel stack。CPU 會把引起故障的 virtual memory 存在特定的暫存器 (x86 中是 CR2 暫存器)。之後 CPU 根據接收到的 interrupt vector number 去查 interrupt vector table(VT) 或是 IDT (interrupt descriptor table, x86)。每個 entry 為 16 bytes 的結構 (offset + selector)。這邊不多說 IDT entry 的內容。他們會透過 offset (透過 kernel page table，CPU 有暫存器指向 TSS 位址，TSS 會提供 kernel stack rsp) 去定位程式。
-      - 補充： selector 會指向 GDT 提供 sementation descriptor (GDT 是 array，定義了三種段，code, data, system segment (TSS))。
-    - COW, copy on write
+
+## `malloc2.c`
+output: 
+```
+執行malloc『前』的memory的layout
+313883:   ./malloc2
+00005d0e7b833000      4K r---- malloc2
+00005d0e7b834000      4K r-x-- malloc2
+00005d0e7b835000      4K r---- malloc2
+00005d0e7b836000      4K r---- malloc2
+00005d0e7b837000      4K rw--- malloc2
+00005d0e95110000    132K rw---   [ anon ] // before malloc heap
+00007d429c400000    160K r---- libc.so.6
+00007d429c428000   1568K r-x-- libc.so.6
+00007d429c5b0000    316K r---- libc.so.6
+00007d429c5ff000     16K r---- libc.so.6
+00007d429c603000      8K rw--- libc.so.6
+00007d429c605000     52K rw---   [ anon ]
+00007d429c731000     12K rw---   [ anon ]
+00007d429c744000      8K rw---   [ anon ]
+00007d429c746000     16K r----   [ anon ]
+00007d429c74a000      8K r----   [ anon ]
+00007d429c74c000      8K r-x--   [ anon ]
+00007d429c74e000      4K r---- ld-linux-x86-64.so.2
+00007d429c74f000    172K r-x-- ld-linux-x86-64.so.2
+00007d429c77a000     40K r---- ld-linux-x86-64.so.2
+00007d429c784000      8K r---- ld-linux-x86-64.so.2
+00007d429c786000      8K rw--- ld-linux-x86-64.so.2
+00007ffe7529c000    136K rw---   [ stack ]
+ffffffffff600000      4K --x--   [ anon ]
+ total             2696K
+malloc 64*4K
+執行malloc『後』的memory的layout
+313883:   ./malloc2
+00005d0e7b833000      4K r---- malloc2
+00005d0e7b834000      4K r-x-- malloc2
+00005d0e7b835000      4K r---- malloc2
+00005d0e7b836000      4K r---- malloc2
+00005d0e7b837000      4K rw--- malloc2
+00005d0e95110000   8316K rw---   [ anon ] // after malloc heap
+00007d429c400000    160K r---- libc.so.6
+00007d429c428000   1568K r-x-- libc.so.6
+00007d429c5b0000    316K r---- libc.so.6
+00007d429c5ff000     16K r---- libc.so.6
+00007d429c603000      8K rw--- libc.so.6
+00007d429c605000     52K rw---   [ anon ]
+00007d429c731000     12K rw---   [ anon ]
+00007d429c744000      8K rw---   [ anon ]
+00007d429c746000     16K r----   [ anon ]
+00007d429c74a000      8K r----   [ anon ]
+00007d429c74c000      8K r-x--   [ anon ]
+00007d429c74e000      4K r---- ld-linux-x86-64.so.2
+00007d429c74f000    172K r-x-- ld-linux-x86-64.so.2
+00007d429c77a000     40K r---- ld-linux-x86-64.so.2
+00007d429c784000      8K r---- ld-linux-x86-64.so.2
+00007d429c786000      8K rw--- ld-linux-x86-64.so.2
+00007ffe7529c000    136K rw---   [ stack ]
+ffffffffff600000      4K --x--   [ anon ]
+ total            10880K
+ ```
+ 可以看到，明明只要了 64*4K byte = 256KB，卻增加了 8316K - 132K = 8284KB 將近 8MB。
+因為是透過 for(1 to 64*4k) malloc(1); 所以會呼叫 `brk` 64*4k 次。所以 `brk` 每次也都會多分配heap空間給 `malloc`
+
+## `mmfile.c`
+這邊使用到的 mmap 是硬碟映射給虛擬記憶體。這邊先透過 `lseek` 到 500,000 - 3 bytes 的檔案位址，並寫入 'end' 來填滿這個 mmfile.data，確保他佔了硬碟空間 500,000 bytes。
+之後透過 `mmfile = mmap(NULL, fileSize, PROT_WRITE, MAP_SHARED, fd, 0);` 將這個 fd 透過 mmap 映射到變數 mmfile 虛擬記憶體。這邊 mmap 設定為 `MAP_SHARED`，如果有其他 process 也透過 `mmap` 映射這個 fd，他們之間的更改會共享 page cache，同時更改結果有會寫回硬碟。反之，如果使用 `MAP_PRIVATE` 就會遵循 COW 的原則，當某個 process A 更改了 value，process A 就會發生 page fault，kernel 就會額外幫他分配一個 page cache，寫入結果也不會寫回硬碟，只會存在於 `.data` segment。
+實驗結果，mmfile 寫入 500,000 個 'B'，結果反映在 mmfile.data 上。

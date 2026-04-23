@@ -17,7 +17,9 @@ int main (int argc, char** argv) {
     char* mmfile=NULL;
     char* stringBuf="end";
     int fd = open("./mmfile.data", O_CREAT|O_RDWR, S_IRUSR|S_IWUSR);
+    // 1. 先跳到 500,000 - 3 的位置
     lseek(fd, fileSize-sizeof(stringBuf), SEEK_SET);
+    // 2. 從那個位置開始寫入 3 bytes ("end")
     assert(write(fd, stringBuf, sizeof(stringBuf))==sizeof(stringBuf));
     //sync();
     //exit(0);

@@ -13,7 +13,7 @@ int main() {
 	assert(system(command) >=0);
 	printf("malloc 64*4K\n");
 	for (i=0; i<64*4096; i++)
-		p=(char*)malloc(1);
+		p=(char*)malloc(1); // using brk for 64*4K times
 	printf("執行malloc『後』的memory的layout\n");
 	sprintf(command, "pmap %d", getpid());
 	assert(system(command) >=0);
