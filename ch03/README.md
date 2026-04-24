@@ -133,6 +133,13 @@ ffffffffff600000      4K --x--   [ anon ]
 因為是透過 for(1 to 64*4k) malloc(1); 所以會呼叫 `brk` 64*4k 次。所以 `brk` 每次也都會多分配heap空間給 `malloc`
 
 ## `mmfile.c`
-這邊使用到的 mmap 是硬碟映射給虛擬記憶體。這邊先透過 `lseek` 到 500,000 - 3 bytes 的檔案位址，並寫入 'end' 來填滿這個 mmfile.data，確保他佔了硬碟空間 500,000 bytes。
-之後透過 `mmfile = mmap(NULL, fileSize, PROT_WRITE, MAP_SHARED, fd, 0);` 將這個 fd 透過 mmap 映射到變數 mmfile 虛擬記憶體。這邊 mmap 設定為 `MAP_SHARED`，如果有其他 process 也透過 `mmap` 映射這個 fd，他們之間的更改會共享 page cache，同時更改結果有會寫回硬碟。反之，如果使用 `MAP_PRIVATE` 就會遵循 COW 的原則，當某個 process A 更改了 value，process A 就會發生 page fault，kernel 就會額外幫他分配一個 page cache，寫入結果也不會寫回硬碟，只會存在於 `.data` segment。
+- 這邊使用到的 mmap 是硬碟映射給虛擬記憶體。這邊先透過 `lseek` 到 500,000 - 3 bytes 的檔案位址，並寫入 'end' 來填滿這個 mmfile.data，確保他佔了硬碟空間 500,000 bytes。
+- 之後透過 `mmfile = mmap(NULL, fileSize, PROT_WRITE, MAP_SHARED, fd, 0);` 將這個 fd 透過 mmap 映射到變數 mmfile 虛擬記憶體。這邊 mmap 設定為 `MAP_SHARED`，如果有其他 process 也透過 `mmap` 映射這個 fd，他們之間的更改會共享 page cache，同時更改結果有會寫回硬碟。反之，如果使用 `MAP_PRIVATE` 就會遵循 COW 的原則，當某個 process A 更改了 value，process A 就會發生 page fault，kernel 就會額外幫他分配一個 page cache，寫入結果也不會寫回硬碟，只會存在於 `.data` segment。
 實驗結果，mmfile 寫入 500,000 個 'B'，結果反映在 mmfile.data 上。
+
+- 關於多個 process 使用 mmap 的實驗，透過 `mmfile2.c` 和 `mmfile3_write.c`, `mmfile3_reader.c` 來實驗
+- 其中 `mmfile3` 有使用 `pthread_mutex_lock`，他不是單純的 spinlock 或是 busy wait，而是 hybrid 的，機制是 futex (fast user space mutex)
+- futex
+  - phase 1: 當你呼叫 `pthread_mutex_lock` 時，它會先嘗試在 User-space 執行一個原子指令（例如 `CMPXCHG`），沒人競爭就拿到 lock
+  - phase 2: 如果沒有拿到 lock，他不會馬上 sleep，而是進行短暫的 spinning
+  - phase 3: 如果還是沒有拿到 lock，就會呼叫 `futex(FUTEX_WAIT)` 進入 kernel，kernel 會將 task_struct 移出 runqueue，放入到 waitqueue。當 `futex(addr, FUTEX_WAKE, 1)` 呼叫，代表 `addr` 這個鎖以機可以拿了，就會從 waitqueue 挑選 1 個在前端的 process 起床。
