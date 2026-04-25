@@ -44,7 +44,6 @@ int main(int argc, char* argv[]) {
     printf("inputPtr = %p\n", inputPtr);
     //assert(madvise(inputPtr, fileSize, MADV_SEQUENTIAL|MADV_WILLNEED|MADV_HUGEPAGE)==0);
 
-    //ftruncate的名字是：縮小
     //實際上是設定檔案大小
     ftruncate(outputFd, fileSize);  //🐶 🐱 🐭 🐹 🐰 🦊
     outputPtr = mmap(NULL, fileSize, PROT_WRITE, MAP_SHARED , outputFd , 0); //🐶 🐱 🐭 🐹 🐰 🦊

@@ -2,6 +2,6 @@
 #include <errno.h>
 
 int main() {
-	errno=1;
+	errno=104;
 	perror("the error is");
 }

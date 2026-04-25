@@ -23,11 +23,10 @@ int main(int argc, char** argv) {
 	fd = open("./syncFile.data",O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	for(num=0; num <=100000; num++) {
 		write(fd, "1234", sizeof("1234"));
-		//將資料立即同步到檔案系統中
-		fsync(fd);
+		fsync(fd); // 將資料立即同步到 disk
 		if (num%10000==1) {
-			write(1, "*", sizeof("*"));
-			fsync(1);
+			write(1, "*", sizeof("*")); // 1 是標準輸出 (Standard Output) 的檔案描述符
+			fsync(1); // "*" 立即同步到螢幕上，否則可能會等到緩衝區滿了才印出來
 		}
 		if (num%100==0 && printFileInfo==1)
 			system("ls syncFile.data -alhs");

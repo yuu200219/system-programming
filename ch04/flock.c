@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/file.h>
+#include <fcntl.h>
 
 int main(int argc, char* argv[]) {
     int file_descriptor; // 檔案描述符
